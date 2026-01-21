@@ -1,0 +1,205 @@
+import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom/client';
+
+function CheckoutForm() {
+  const [orderId, setOrderId] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [method, setMethod] = useState('upi');
+  const [vpa, setVpa] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cvv, setCvv] = useState('');
+  const [expiry, setExpiry] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setOrderId(params.get('order_id') || '');
+    setApiKey(params.get('key') || '');
+  }, []);
+
+  const sendMessageToParent = (type, data) => {
+    window.parent.postMessage({ type, data }, '*');
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch('http://localhost:8000/api/v1/payments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Api-Key': apiKey,
+          'X-Api-Secret': 'secret_test_xyz789' // In production, this should be handled securely
+        },
+        body: JSON.stringify({
+          order_id: orderId,
+          method,
+          vpa: method === 'upi' ? vpa : undefined,
+          card_number: method === 'card' ? cardNumber : undefined,
+          cvv: method === 'card' ? cvv : undefined,
+          expiry: method === 'card' ? expiry : undefined
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setSuccess(true);
+        // Poll for payment status
+        pollPaymentStatus(data.id);
+      } else {
+        setError(data.error?.description || 'Payment failed');
+        sendMessageToParent('payment_failed', { error: data.error });
+      }
+    } catch (err) {
+      setError(err.message);
+      sendMessageToParent('payment_failed', { error: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const pollPaymentStatus = async (paymentId) => {
+    const maxAttempts = 30;
+    let attempts = 0;
+
+    const poll = async () => {
+      try {
+        const response = await fetch(`http://localhost:8000/api/v1/payments/${paymentId}`, {
+          headers: {
+            'X-Api-Key': apiKey,
+            'X-Api-Secret': 'secret_test_xyz789'
+          }
+        });
+
+        const data = await response.json();
+
+        if (data.status === 'success') {
+          sendMessageToParent('payment_success', { paymentId: data.id });
+          return;
+        } else if (data.status === 'failed') {
+          sendMessageToParent('payment_failed', { error: data.error_description });
+          return;
+        }
+
+        attempts++;
+        if (attempts < maxAttempts) {
+          setTimeout(poll, 1000);
+        }
+      } catch (err) {
+        console.error('Error polling payment status:', err);
+      }
+    };
+
+    setTimeout(poll, 2000);
+  };
+
+  return (
+    <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
+      <h2>Complete Payment</h2>
+      
+      {success ? (
+        <div style={{ color: 'green', padding: '20px', textAlign: 'center' }}>
+          <h3>Processing payment...</h3>
+          <p>Please wait while we process your payment.</p>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: '15px' }}>
+            <label>Payment Method:</label>
+            <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ width: '100%', padding: '8px' }}>
+              <option value="upi">UPI</option>
+              <option value="card">Card</option>
+            </select>
+          </div>
+
+          {method === 'upi' ? (
+            <div style={{ marginBottom: '15px' }}>
+              <label>VPA:</label>
+              <input
+                type="text"
+                value={vpa}
+                onChange={(e) => setVpa(e.target.value)}
+                placeholder="user@paytm"
+                required
+                style={{ width: '100%', padding: '8px' }}
+              />
+            </div>
+          ) : (
+            <>
+              <div style={{ marginBottom: '15px' }}>
+                <label>Card Number:</label>
+                <input
+                  type="text"
+                  value={cardNumber}
+                  onChange={(e) => setCardNumber(e.target.value)}
+                  placeholder="1234 5678 9012 3456"
+                  required
+                  style={{ width: '100%', padding: '8px' }}
+                />
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <label>CVV:</label>
+                <input
+                  type="text"
+                  value={cvv}
+                  onChange={(e) => setCvv(e.target.value)}
+                  placeholder="123"
+                  required
+                  style={{ width: '100%', padding: '8px' }}
+                />
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <label>Expiry:</label>
+                <input
+                  type="text"
+                  value={expiry}
+                  onChange={(e) => setExpiry(e.target.value)}
+                  placeholder="MM/YY"
+                  required
+                  style={{ width: '100%', padding: '8px' }}
+                />
+              </div>
+            </>
+          )}
+
+          {error && (
+            <div style={{ color: 'red', marginBottom: '15px' }}>
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: '100%',
+              padding: '12px',
+              backgroundColor: '#007bff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontSize: '16px'
+            }}
+          >
+            {loading ? 'Processing...' : 'Pay Now'}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+// Render if embedded
+if (new URLSearchParams(window.location.search).get('embedded') === 'true') {
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(<CheckoutForm />);
+}
+
+export default CheckoutForm;
