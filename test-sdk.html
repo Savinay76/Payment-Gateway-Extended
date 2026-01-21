@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SDK Test</title>
+</head>
+<body>
+    <h1>Payment Gateway SDK Test</h1>
+    <button id="pay-button">Pay Now</button>
+    
+    <script src="http://localhost:3001/checkout.js"></script>
+    <script>
+        console.log('PaymentGateway available:', typeof window.PaymentGateway);
+        
+        document.getElementById('pay-button').addEventListener('click', function() {
+            if (typeof window.PaymentGateway === 'undefined') {
+                alert('PaymentGateway SDK not loaded!');
+                return;
+            }
+            
+            const checkout = new window.PaymentGateway({
+                key: 'key_test_abc123',
+                orderId: 'order_test_123',
+                onSuccess: function(response) {
+                    alert('Payment successful: ' + JSON.stringify(response));
+                    console.log('Success:', response);
+                },
+                onFailure: function(error) {
+                    alert('Payment failed: ' + JSON.stringify(error));
+                    console.log('Failure:', error);
+                },
+                onClose: function() {
+                    console.log('Modal closed');
+                }
+            });
+            checkout.open();
+        });
+    </script>
+</body>
+</html>
